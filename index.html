@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>City Drive 3D</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- ========== MAIN MENU ========== -->
+        <div id="menu-screen">
+            <div id="menu-bg-overlay"></div>
+            <div id="menu-content">
+                <div id="menu-logo">
+                    <div id="menu-icon">
+                        <div class="icon-car"></div>
+                    </div>
+                    <h1 id="menu-title">CITY DRIVE</h1>
+                    <div id="menu-subtitle">3D OPEN WORLD</div>
+                </div>
+
+                <div id="menu-buttons">
+                    <button id="btn-start-game" class="menu-btn primary-btn">START GAME</button>
+                    <button id="btn-controls" class="menu-btn">CONTROLS</button>
+                </div>
+
+                <div id="menu-version">v1.0 | PlayCanvas Engine</div>
+            </div>
+
+            <!-- CONTROLS PANEL (hidden by default) -->
+            <div id="controls-panel" class="hidden">
+                <div id="controls-panel-inner">
+                    <h2>CONTROLS</h2>
+                    <div id="controls-grid">
+                        <div class="control-item">
+                            <div class="key-badge">W</div>
+                            <span>Accelerate</span>
+                        </div>
+                        <div class="control-item">
+                            <div class="key-badge">S</div>
+                            <span>Brake / Reverse</span>
+                        </div>
+                        <div class="control-item">
+                            <div class="key-badge">A</div>
+                            <span>Turn Left</span>
+                        </div>
+                        <div class="control-item">
+                            <div class="key-badge">D</div>
+                            <span>Turn Right</span>
+                        </div>
+                        <div class="control-item">
+                            <div class="key-badge large">SPACE</div>
+                            <span>Drift</span>
+                        </div>
+                        <div class="control-item">
+                            <div class="key-badge">C</div>
+                            <span>Change Camera</span>
+                        </div>
+                        <div class="control-item">
+                            <div class="key-badge">R</div>
+                            <span>Reset Car</span>
+                        </div>
+                        <div class="control-item">
+                            <div class="key-badge">ESC</div>
+                            <span>Pause</span>
+                        </div>
+                    </div>
+                    <div id="camera-modes">
+                        <h3>CAMERA MODES (Press C)</h3>
+                        <div class="camera-mode-item">
+                            <span class="mode-label">Chase</span>
+                            <span class="mode-desc">3rd person behind car</span>
+                        </div>
+                        <div class="camera-mode-item">
+                            <span class="mode-label">Top-Down</span>
+                            <span class="mode-desc">Bird's eye view</span>
+                        </div>
+                        <div class="camera-mode-item">
+                            <span class="mode-label">Hood</span>
+                            <span class="mode-desc">First person from hood</span>
+                        </div>
+                    </div>
+                    <button id="btn-controls-back" class="menu-btn primary-btn">BACK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== LOADING SCREEN ========== -->
+        <div id="loading-screen" class="hidden">
+            <div id="loading-content">
+                <div id="loading-title">LOADING CITY</div>
+                <div id="loading-bar-container">
+                    <div id="loading-bar">
+                        <div id="loading-bar-glow"></div>
+                    </div>
+                </div>
+                <div id="loading-percent">0%</div>
+                <div id="loading-text">Preparing...</div>
+                <div id="loading-details">
+                    <div id="loading-asset-name"></div>
+                    <div id="loading-asset-count">0 / 0 assets</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========== GAME HUD ========== -->
+        <div id="game-hud" class="hidden">
+            <div id="speedometer">
+                <div id="speed-value">0</div>
+                <div id="speed-unit">km/h</div>
+            </div>
+
+            <button id="start-stop-btn">START ENGINE</button>
+
+            <div id="drift-indicator">HOLD SPACE TO DRIFT</div>
+
+            <div id="controls-info">
+                WASD Drive | SPACE Drift | C Camera | R Reset
+            </div>
+        </div>
+    </div>
+
+    <script src="playcanvas.min.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
