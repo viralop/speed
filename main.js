@@ -27,8 +27,8 @@ var buildingAssets = [];
 var propAssets = {};
 var playerCarAsset = null;
 var aiCarAsset = null;
-var roadAssets = {};
-var cityAsset = null;
+var selectedCarType = null;
+var dirtyCarAsset = null;
 
 // ============================================
 // GLB MODEL LOADER
@@ -68,14 +68,14 @@ function loadGLB(url, callback) {
     }
 }
 
-function instantiateModel(asset, parent, x, y, z, sx, sy, sz, ry) {
+function instantiateModel(asset, parent, x, y, z, sx, sy, sz, rx, ry, rz) {
     try {
         var entity = asset.resource.instantiateRenderEntity();
         if (sx !== undefined) {
             entity.setLocalScale(sx, sy !== undefined ? sy : sx, sz !== undefined ? sz : sx);
         }
         if (x !== undefined) entity.setPosition(x, y || 0, z || 0);
-        if (ry !== undefined) entity.setLocalEulerAngles(0, ry, 0);
+        if (rx !== undefined) entity.setLocalEulerAngles(rx, ry || 0, rz || 0);
         if (parent) parent.addChild(entity);
         else app.root.addChild(entity);
         return entity;
@@ -216,6 +216,7 @@ function preloadAssets() {
     allUrls.push('low_poly_cars_pack.glb');
     allUrls.push('low_poly_cars_pack.glb');
     allUrls.push('city_3d_model.glb');
+    allUrls.push('models/dirty_car_061220.glb');
 
     var totalAssets = allUrls.length;
     var loaded = 0;
@@ -238,6 +239,7 @@ function preloadAssets() {
         });
         if (url === 'low_poly_cars_pack.glb' && asset) aiCarAsset = asset;
         if (url === 'city_3d_model.glb' && asset) cityAsset = asset;
+        if (url === 'models/dirty_car_061220.glb' && asset) dirtyCarAsset = asset;
 
         if (loaded >= totalAssets) {
             onAllAssetsLoaded();
@@ -257,10 +259,11 @@ function onAllAssetsLoaded() {
     console.log('Assets loaded - Buildings:', loadedCount, 'Props:', propCount,
         'AI car:', !!aiCarAsset, 'City model:', !!cityAsset);
 
-    document.getElementById('loading-text').textContent =
-        'Building city... (' + loadedCount + ' buildings, ' + propCount + ' props loaded)';
+    document.getElementById('loading-text').textContent = 'Ready!';
+    document.getElementById('loading-bar').style.width = '100%';
+    document.getElementById('loading-percent').textContent = '100%';
     setTimeout(function () {
-        buildWorld();
+        showCarSelection();
     }, 300);
 }
 
@@ -610,11 +613,27 @@ function updateTrafficLightState(dt) {
     });
 }
 
-var PLAYER_CAR_ROT = [0, 0, 0];
-var PLAYER_CAR_SCALE = 1;
-var AI_CAR_ROT = [0, 0, 0];
-var AI_CAR_SCALE = 1;
 var aiPackChildCount = 0;
+
+function fixModelDepth(entity) {
+    var toUpdate = [];
+    function scan(e) {
+        if (e.model && e.model.meshInstances) {
+            for (var i = 0; i < e.model.meshInstances.length; i++) {
+                var mi = e.model.meshInstances[i];
+                if (mi.material) {
+                    mi.material.depthWrite = true;
+                    mi.material.blendType = pc.BLEND_NONE;
+                    mi.material.update();
+                }
+            }
+        }
+        for (var c = 0; c < e.children.length; c++) {
+            scan(e.children[c]);
+        }
+    }
+    scan(entity);
+}
 
 function removeGroundPlanes(entity) {
     var toRemove = [];
@@ -648,14 +667,120 @@ function removeGroundPlanes(entity) {
 }
 
 // ============================================
-// PLAYER CAR - LOW POLY DETAILED
+// CAR SELECTION
+// ============================================
+var carChoices = [];
+
+function showCarSelection() {
+    var ls = document.getElementById('loading-screen');
+    ls.classList.add('fade-out');
+    setTimeout(function () {
+        ls.classList.add('hidden');
+        document.getElementById('car-select-screen').classList.remove('hidden');
+    }, 600);
+
+    carChoices = [];
+    var grid = document.getElementById('car-select-grid');
+    grid.innerHTML = '';
+
+    carChoices.push({ type: 'primitive', name: 'Sport Car', color: '#cc2222' });
+
+    if (aiCarAsset) {
+        var pack = aiCarAsset.resource.instantiateRenderEntity();
+        if (pack) {
+            var children = pack.children;
+            for (var i = 0; i < children.length; i++) {
+                if (children[i].model && children[i].model.meshInstances && children[i].model.meshInstances.length > 0) {
+                    var hues = ['#3344ff', '#ffaa00', '#00cc44', '#ff44cc', '#44ffff', '#ff8800', '#8844ff', '#44ff88'];
+                    carChoices.push({
+                        type: 'pack',
+                        name: 'Car ' + (carChoices.length),
+                        color: hues[carChoices.length % hues.length],
+                        childIndex: i
+                    });
+                }
+            }
+            pack.destroy();
+        }
+    }
+
+    if (dirtyCarAsset) {
+        carChoices.push({ type: 'dirty', name: 'Muscle Car', color: '#886633' });
+    }
+
+    carChoices.forEach(function (choice, idx) {
+        var el = document.createElement('div');
+        el.className = 'car-option';
+        el.innerHTML = '<div class="car-option-icon" style="background:' + choice.color + '"></div>' +
+            '<div class="car-option-name">' + choice.name + '</div>';
+        el.addEventListener('click', function () {
+            document.querySelectorAll('.car-option').forEach(function (o) { o.classList.remove('selected'); });
+            el.classList.add('selected');
+            selectedCarType = idx;
+            document.getElementById('btn-drive').disabled = false;
+        });
+        grid.appendChild(el);
+    });
+
+    document.getElementById('btn-drive').onclick = function () {
+        if (selectedCarType === null) return;
+        var cs = document.getElementById('car-select-screen');
+        cs.classList.add('fade-out');
+        setTimeout(function () {
+            cs.classList.add('hidden');
+            buildWorld();
+        }, 600);
+    };
+}
+
+// ============================================
+// PLAYER CAR
 // ============================================
 function createPlayerCar() {
+    if (selectedCarType === null) selectedCarType = 0;
+    var choice = carChoices[selectedCarType] || carChoices[0];
+
     var car = new pc.Entity('player_car');
     car.setPosition(0, 0.6, 0);
     app.root.addChild(car);
     carEntity = car;
 
+    if (choice.type === 'dirty' && dirtyCarAsset) {
+        var s = 4.0/255;
+        var ent = instantiateModel(dirtyCarAsset, car, 0, 0, 0, s, s, s, 270, 180, 0);
+        if (ent) { removeGroundPlanes(ent); }
+    } else if (choice.type === 'pack' && aiCarAsset) {
+        var pack = aiCarAsset.resource.instantiateRenderEntity();
+        if (pack) {
+            var children = pack.children;
+            var carChildren = [];
+            for (var i = 0; i < children.length; i++) {
+                if (children[i].model && children[i].model.meshInstances && children[i].model.meshInstances.length > 0) {
+                    carChildren.push(children[i]);
+                }
+            }
+            if (choice.childIndex < carChildren.length) {
+                var picked = carChildren[choice.childIndex];
+                picked.reparent(car);
+                for (var j = 0; j < children.length; j++) {
+                    if (children[j] !== picked && children[j].parent === pack) {
+                        children[j].destroy();
+                    }
+                }
+                pack.destroy();
+            } else {
+                pack.destroy();
+                buildPrimitiveCar(car);
+            }
+        } else {
+            buildPrimitiveCar(car);
+        }
+    } else {
+        buildPrimitiveCar(car);
+    }
+}
+
+function buildPrimitiveCar(car) {
     var bodyMat = createMaterial(0xcc2222, 0.4);
     var bodyDarkMat = createMaterial(0x991111, 0.5);
     var chromeMat = createMaterial(0xcccccc, 0.1);
@@ -753,9 +878,6 @@ function createPlayerCar() {
     // Side air intakes
     addBox(car, 0.06, 0.2, 0.5, -1.06, 0.35, 0.8, detailMat);
     addBox(car, 0.06, 0.2, 0.5, 1.06, 0.35, 0.8, detailMat);
-
-    car.setLocalEulerAngles(PLAYER_CAR_ROT[0], PLAYER_CAR_ROT[1], PLAYER_CAR_ROT[2]);
-    car.setLocalScale(PLAYER_CAR_SCALE, PLAYER_CAR_SCALE, PLAYER_CAR_SCALE);
 }
 
 function addWheel(parent, x, y, z) {
@@ -825,6 +947,44 @@ function addCylinder(parent, radius, height, x, y, z, mat) {
     e.setLocalEulerAngles(90, 0, 0);
     parent.addChild(e);
     return e;
+}
+
+// ============================================
+// CAR PHYSICS
+// ============================================
+function updateCarPhysics(dt) {
+    if (!gameRunning || !carEntity) return;
+
+    var fwd = 0, turn = 0;
+    if (keys['w'] || keys['arrowup']) fwd = 1;
+    if (keys['s'] || keys['arrowdown']) fwd = -1;
+    if (keys['a'] || keys['arrowleft']) turn = 1;
+    if (keys['d'] || keys['arrowright']) turn = -1;
+
+    if (fwd > 0) carSpeed = Math.min(carSpeed + acceleration * dt, maxSpeed);
+    else if (fwd < 0) { if (carSpeed > 0) carSpeed = Math.max(carSpeed - braking * dt, 0); else carSpeed = Math.max(carSpeed - acceleration * 0.5 * dt, -maxSpeed * 0.3); }
+    else { if (carSpeed > 0) carSpeed = Math.max(0, carSpeed - naturalDecel * dt); else if (carSpeed < 0) carSpeed = Math.min(0, carSpeed + naturalDecel * dt); }
+
+    if (driftActive && Math.abs(carSpeed) > 10) { driftMultiplier = 2.0; carSpeed *= 0.998; }
+    else driftMultiplier = 1.0;
+
+    if (Math.abs(carSpeed) > 0.1) {
+        var curTurn = turn * turnSpeed * dt * (driftActive ? driftMultiplier : 1);
+        carRotation += curTurn;
+        carEntity.setLocalEulerAngles(0, carRotation, 0);
+    }
+
+    var rad = carRotation * Math.PI / 180;
+    var pos = carEntity.getPosition();
+    carEntity.setPosition(pos.x - Math.sin(rad) * carSpeed * dt * 0.15, pos.y, pos.z - Math.cos(rad) * carSpeed * dt * 0.15);
+}
+
+function resetCar() {
+    if (!carEntity) return;
+    carEntity.setPosition(0, 0.6, 0);
+    carRotation = 0;
+    carEntity.setLocalEulerAngles(0, 0, 0);
+    carSpeed = 0;
 }
 
 // ============================================
@@ -983,79 +1143,11 @@ function setupInput() {
         if (e.key === ' ') { e.preventDefault(); driftActive = true; document.getElementById('drift-indicator').classList.add('drifting'); }
         if (e.key.toLowerCase() === 'c') cameraMode = (cameraMode + 1) % 3;
         if (e.key.toLowerCase() === 'r') resetCar();
-        if (e.key === '9') { PLAYER_CAR_ROT[0] -= 15; applyCarRotation(); console.log('Car rot X:', PLAYER_CAR_ROT[0], 'Y:', PLAYER_CAR_ROT[1], 'Z:', PLAYER_CAR_ROT[2]); }
-        if (e.key === '0') { PLAYER_CAR_ROT[0] += 15; applyCarRotation(); console.log('Car rot X:', PLAYER_CAR_ROT[0], 'Y:', PLAYER_CAR_ROT[1], 'Z:', PLAYER_CAR_ROT[2]); }
-        if (e.key === '[') { PLAYER_CAR_ROT[2] -= 15; applyCarRotation(); console.log('Car rot X:', PLAYER_CAR_ROT[0], 'Y:', PLAYER_CAR_ROT[1], 'Z:', PLAYER_CAR_ROT[2]); }
-        if (e.key === ']') { PLAYER_CAR_ROT[2] += 15; applyCarRotation(); console.log('Car rot X:', PLAYER_CAR_ROT[0], 'Y:', PLAYER_CAR_ROT[1], 'Z:', PLAYER_CAR_ROT[2]); }
-        if (e.key === '-') { PLAYER_CAR_ROT[1] -= 15; applyCarRotation(); console.log('Car rot X:', PLAYER_CAR_ROT[0], 'Y:', PLAYER_CAR_ROT[1], 'Z:', PLAYER_CAR_ROT[2]); }
-        if (e.key === '=') { PLAYER_CAR_ROT[1] += 15; applyCarRotation(); console.log('Car rot X:', PLAYER_CAR_ROT[0], 'Y:', PLAYER_CAR_ROT[1], 'Z:', PLAYER_CAR_ROT[2]); }
-        if (e.key === 'ArrowUp') { PLAYER_CAR_SCALE += 0.1; applyCarScale(); console.log('Car scale:', PLAYER_CAR_SCALE); }
-        if (e.key === 'ArrowDown') { PLAYER_CAR_SCALE = Math.max(0.1, PLAYER_CAR_SCALE - 0.1); applyCarScale(); console.log('Car scale:', PLAYER_CAR_SCALE); }
     });
     document.addEventListener('keyup', function (e) {
         keys[e.key.toLowerCase()] = false;
         if (e.key === ' ') { driftActive = false; document.getElementById('drift-indicator').classList.remove('drifting'); }
     });
-}
-
-function applyCarRotation() {
-    if (!carEntity) return;
-    for (var i = 0; i < carEntity.children.length; i++) {
-        carEntity.children[i].setLocalEulerAngles(PLAYER_CAR_ROT[0], PLAYER_CAR_ROT[1], PLAYER_CAR_ROT[2]);
-    }
-}
-
-function applyCarScale() {
-    if (!carEntity) return;
-    for (var i = 0; i < carEntity.children.length; i++) {
-        carEntity.children[i].setLocalScale(PLAYER_CAR_SCALE, PLAYER_CAR_SCALE, PLAYER_CAR_SCALE);
-    }
-}
-
-function applyCarRotation() {
-    if (!carEntity) return;
-    var children = carEntity.children;
-    for (var i = 0; i < children.length; i++) {
-        children[i].setLocalEulerAngles(PLAYER_CAR_ROT[0], PLAYER_CAR_ROT[1], PLAYER_CAR_ROT[2]);
-    }
-}
-
-// ============================================
-// CAR PHYSICS
-// ============================================
-function updateCarPhysics(dt) {
-    if (!gameRunning || !carEntity) return;
-
-    var fwd = 0, turn = 0;
-    if (keys['w'] || keys['arrowup']) fwd = 1;
-    if (keys['s'] || keys['arrowdown']) fwd = -1;
-    if (keys['a'] || keys['arrowleft']) turn = 1;
-    if (keys['d'] || keys['arrowright']) turn = -1;
-
-    if (fwd > 0) carSpeed = Math.min(carSpeed + acceleration * dt, maxSpeed);
-    else if (fwd < 0) { if (carSpeed > 0) carSpeed = Math.max(carSpeed - braking * dt, 0); else carSpeed = Math.max(carSpeed - acceleration * 0.5 * dt, -maxSpeed * 0.3); }
-    else { if (carSpeed > 0) carSpeed = Math.max(0, carSpeed - naturalDecel * dt); else if (carSpeed < 0) carSpeed = Math.min(0, carSpeed + naturalDecel * dt); }
-
-    if (driftActive && Math.abs(carSpeed) > 10) { driftMultiplier = 2.0; carSpeed *= 0.998; }
-    else driftMultiplier = 1.0;
-
-    if (Math.abs(carSpeed) > 0.1) {
-        var curTurn = turn * turnSpeed * dt * (driftActive ? driftMultiplier : 1);
-        carRotation += curTurn;
-        carEntity.setLocalEulerAngles(0, carRotation, 0);
-    }
-
-    var rad = carRotation * Math.PI / 180;
-    var pos = carEntity.getPosition();
-    carEntity.setPosition(pos.x - Math.sin(rad) * carSpeed * dt * 0.15, pos.y, pos.z - Math.cos(rad) * carSpeed * dt * 0.15);
-}
-
-function resetCar() {
-    if (!carEntity) return;
-    carEntity.setPosition(0, 0.6, 0);
-    carRotation = 0;
-    carEntity.setLocalEulerAngles(0, 0, 0);
-    carSpeed = 0;
 }
 
 // ============================================
@@ -1070,9 +1162,6 @@ function toggleGame() {
 
 function updateUI() {
     document.getElementById('speed-value').textContent = Math.abs(Math.round(carSpeed));
-    document.querySelectorAll('.light').forEach(function (l) { l.classList.remove('active'); });
-    var active = document.getElementById('light-' + currentLightState);
-    if (active) active.classList.add('active');
 }
 
 // ============================================
