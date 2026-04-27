@@ -34,7 +34,6 @@ var aiCarAsset = null;
 var selectedCarType = null;
 var dirtyCarAsset = null;
 var flyingCarAsset = null;
-var broncoCarAsset = null;
 
 // ============================================
 // GLB MODEL LOADER
@@ -279,8 +278,8 @@ function initEngine() {
 
     try {
         app.scene.fog = 'linear';
-        app.scene.fogStart = 80;
-        app.scene.fogEnd = 250;
+        app.scene.fogStart = 300;
+        app.scene.fogEnd = 1200;
         app.scene.fogColor = new pc.Color(0.6, 0.75, 0.95);
     } catch (e) {
         console.log('Fog setup skipped:', e.message);
@@ -292,7 +291,7 @@ function initEngine() {
     cameraEntity.addComponent('camera', {
         fov: 65,
         nearClip: 0.1,
-        farClip: 500,
+        farClip: 1500,
         clearColor: new pc.Color(0.6, 0.75, 0.95)
     });
     cameraEntity.setPosition(0, 10, 20);
@@ -387,18 +386,18 @@ function preloadAssets() {
     var allUrls = buildingFiles.slice();
     Object.values(propFiles).forEach(function (u) { allUrls.push(u); });
     allUrls.push('low_poly_cars_pack.glb');
-    allUrls.push('low_poly_cars_pack.glb');
     allUrls.push('city_3d_model.glb');
     allUrls.push('models/dirty_car_061220.glb');
     allUrls.push('models/flying_car.glb');
-    allUrls.push('models/bronco_car_animation_red.glb');
 
     var totalAssets = allUrls.length;
     var loaded = 0;
 
+    var allLoadedFired = false;
     function onAssetLoaded(url, asset) {
         loaded++;
-        var pct = Math.round((loaded / totalAssets) * 100);
+        if (loaded > totalAssets) loaded = totalAssets;
+        var pct = Math.min(Math.round((loaded / totalAssets) * 100), 100);
         document.getElementById('loading-bar').style.width = pct + '%';
         document.getElementById('loading-percent').textContent = pct + '%';
         document.getElementById('loading-text').textContent = 'Loading ' + url.split('/').pop() + '...';
@@ -416,9 +415,9 @@ function preloadAssets() {
         if (url === 'city_3d_model.glb' && asset) cityAsset = asset;
         if (url === 'models/dirty_car_061220.glb' && asset) dirtyCarAsset = asset;
         if (url === 'models/flying_car.glb' && asset) flyingCarAsset = asset;
-        if (url === 'models/bronco_car_animation_red.glb' && asset) broncoCarAsset = asset;
 
-        if (loaded >= totalAssets) {
+        if (loaded >= totalAssets && !allLoadedFired) {
+            allLoadedFired = true;
             onAllAssetsLoaded();
         }
     }
@@ -428,21 +427,26 @@ function preloadAssets() {
             onAssetLoaded(url, asset);
         });
     });
+
+    setTimeout(function () {
+        if (!assetsLoaded) {
+            console.log('Safety timeout - forcing load complete, loaded:', loaded, '/', totalAssets);
+            onAllAssetsLoaded();
+        }
+    }, 60000);
 }
 
 function onAllAssetsLoaded() {
     assetsLoaded = true;
     var loadedCount = buildingAssets.length;
     var propCount = Object.keys(propAssets).length;
-    console.log('Assets loaded - Buildings:', loadedCount, 'Props:', propCount,
-        'AI car:', !!aiCarAsset, 'City model:', !!cityAsset);
+    console.log('All assets loaded - Buildings:', loadedCount, 'Props:', propCount,
+        'AI car:', !!aiCarAsset, 'Dirty car:', !!dirtyCarAsset, 'Flying car:', !!flyingCarAsset);
 
     document.getElementById('loading-text').textContent = 'Ready!';
     document.getElementById('loading-bar').style.width = '100%';
     document.getElementById('loading-percent').textContent = '100%';
-    setTimeout(function () {
-        showCarSelection();
-    }, 300);
+    showCarSelection();
 }
 
 // ============================================
@@ -510,7 +514,7 @@ function createLighting() {
 function createGround() {
     var ground = new pc.Entity('ground');
     ground.addComponent('model', { type: 'plane', material: createMaterial(0x2d5a1e, 0.9) });
-    ground.setLocalScale(600, 1, 600);
+    ground.setLocalScale(1400, 1, 1400);
     app.root.addChild(ground);
 }
 
@@ -518,7 +522,7 @@ function createGround() {
 // CITY GRID
 // ============================================
 var cityGrid = {
-    roadWidth: 14, blockSize: 70, gridCount: 5,
+    roadWidth: 14, blockSize: 70, gridCount: 9,
     getIntersections: function () {
         var p = [], off = (this.gridCount - 1) * this.blockSize / 2;
         for (var gx = 0; gx < this.gridCount; gx++)
@@ -851,15 +855,20 @@ var carChoices = [];
 
 function showCarSelection() {
     var ls = document.getElementById('loading-screen');
-    ls.classList.add('fade-out');
-    setTimeout(function () {
-        ls.classList.add('hidden');
-        document.getElementById('car-select-screen').classList.remove('hidden');
-    }, 600);
+    if (!ls.classList.contains('hidden')) {
+        ls.classList.add('fade-out');
+        setTimeout(function () {
+            ls.classList.add('hidden');
+        }, 600);
+    }
 
     carChoices = [];
     var grid = document.getElementById('car-select-grid');
     grid.innerHTML = '';
+    selectedCarType = null;
+    document.getElementById('btn-drive').disabled = true;
+
+    document.getElementById('car-select-screen').classList.remove('hidden');
 
     carChoices.push({ type: 'primitive', name: 'Sport Car', color: '#cc2222' });
 
@@ -887,9 +896,6 @@ function showCarSelection() {
     }
     if (flyingCarAsset) {
         carChoices.push({ type: 'flying', name: 'Flying Car', color: '#00aaff' });
-    }
-    if (broncoCarAsset) {
-        carChoices.push({ type: 'bronco', name: 'Bronco', color: '#cc2222' });
     }
 
     carChoices.forEach(function (choice, idx) {
@@ -936,10 +942,6 @@ function createPlayerCar() {
     } else if (choice.type === 'flying' && flyingCarAsset) {
         var s = 4.0/255;
         var ent = instantiateModel(flyingCarAsset, car, 0, 0, 0, s, s, s, 270, 180, 0);
-        if (ent) { removeGroundPlanes(ent); }
-    } else if (choice.type === 'bronco' && broncoCarAsset) {
-        var s = 4.0/255;
-        var ent = instantiateModel(broncoCarAsset, car, 0, 0, 0, s, s, s, 270, 180, 0);
         if (ent) { removeGroundPlanes(ent); }
     } else if (choice.type === 'pack' && aiCarAsset) {
         var pack = aiCarAsset.resource.instantiateRenderEntity();
