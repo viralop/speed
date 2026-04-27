@@ -519,38 +519,86 @@ function createGround() {
 }
 
 // ============================================
-// CITY GRID
+// CITY LAYOUT
 // ============================================
 var cityGrid = {
-    roadWidth: 14, blockSize: 70, gridCount: 9,
+    gridCount: 9,
+    mainRoadWidth: 18,
+    sideRoadWidth: 12,
+    blockSize: 70,
+    getMainRoads: function () {
+        return [0, 3, 6, 8];
+    },
     getIntersections: function () {
         var p = [], off = (this.gridCount - 1) * this.blockSize / 2;
         for (var gx = 0; gx < this.gridCount; gx++)
             for (var gz = 0; gz < this.gridCount; gz++)
-                p.push({ x: gx * this.blockSize - off, z: gz * this.blockSize - off });
+                p.push({ x: gx * this.blockSize - off, z: gz * this.blockSize - off, gx: gx, gz: gz, main: this.getMainRoads().indexOf(gx) >= 0 || this.getMainRoads().indexOf(gz) >= 0 });
         return p;
     }
 };
+
+function getRoadWidth(idx) {
+    return cityGrid.getMainRoads().indexOf(idx) >= 0 ? cityGrid.mainRoadWidth : cityGrid.sideRoadWidth;
+}
+
+function getBlockType(bx, bz) {
+    var cx = bx % 4, cz = bz % 4;
+    if (cx === 1 && cz === 1) return 'park';
+    if (cx === 2 && cz === 0) return 'industrial';
+    if (cx === 0 && cz === 2) return 'suburban';
+    return 'commercial';
+}
 
 // ============================================
 // ROADS
 // ============================================
 function createRoads() {
-    var g = cityGrid.gridCount, bs = cityGrid.blockSize, rw = cityGrid.roadWidth;
+    var g = cityGrid.gridCount, bs = cityGrid.blockSize;
     var off = (g - 1) * bs / 2;
     var roadMat = createMaterial(0x333333, 0.95);
+    var mainRoadMat = createMaterial(0x2a2a2a, 0.95);
     var markMat = createMaterial(0xffffff, 0.5);
+    var yellowMat = createMaterial(0xffcc00, 0.5);
+    var crossMat = createMaterial(0xeeeeee, 0.6);
+    var sidewalkMat = createMaterial(0x999999, 0.85);
 
     for (var i = 0; i < g; i++) {
-        makePlane(0, 0.02, i * bs - off, g * bs, rw, roadMat);
-        makePlane(i * bs - off, 0.02, 0, rw, g * bs, roadMat);
-    }
+        var rw = getRoadWidth(i);
+        var isMain = rw === cityGrid.mainRoadWidth;
+        var mat = isMain ? mainRoadMat : roadMat;
 
-    for (var i = 0; i < g; i++) {
-        var z = i * bs - off, x = i * bs - off, len = g * bs;
-        for (var mx = -len / 2; mx < len / 2; mx += 6) {
-            makePlane(mx, 0.03, z, 3, 0.3, markMat);
-            makePlane(x, 0.03, mx, 0.3, 3, markMat);
+        makePlane(0, 0.02, i * bs - off, g * bs, rw, mat);
+        makePlane(i * bs - off, 0.02, 0, rw, g * bs, mat);
+
+        var sidewalkW = 2;
+        makePlane(0, 0.06, i * bs - off + rw / 2 + sidewalkW / 2 + 0.5, g * bs, sidewalkW, sidewalkMat);
+        makePlane(0, 0.06, i * bs - off - rw / 2 - sidewalkW / 2 - 0.5, g * bs, sidewalkW, sidewalkMat);
+        makePlane(i * bs - off + rw / 2 + sidewalkW / 2 + 0.5, 0.06, 0, sidewalkW, g * bs, sidewalkMat);
+        makePlane(i * bs - off - rw / 2 - sidewalkW / 2 - 0.5, 0.06, 0, sidewalkW, g * bs, sidewalkMat);
+
+        var len = g * bs;
+        for (var mx = -len / 2; mx < len / 2; mx += (isMain ? 4 : 6)) {
+            makePlane(mx, 0.03, i * bs - off, isMain ? 2.5 : 2, 0.25, markMat);
+            makePlane(i * bs - off, 0.03, mx, 0.25, isMain ? 2.5 : 2, markMat);
+        }
+        if (isMain) {
+            for (var mx = -len / 2; mx < len / 2; mx += 4) {
+                makePlane(mx, 0.03, i * bs - off + rw / 4, 1.5, 0.15, yellowMat);
+                makePlane(mx, 0.03, i * bs - off - rw / 4, 1.5, 0.15, yellowMat);
+                makePlane(i * bs - off + rw / 4, 0.03, mx, 0.15, 1.5, yellowMat);
+                makePlane(i * bs - off - rw / 4, 0.03, mx, 0.15, 1.5, yellowMat);
+            }
+        }
+
+        for (var j = 0; j < g; j++) {
+            var ix = j * bs - off, iz = i * bs - off;
+            for (var c = -rw / 2 + 1.5; c < rw / 2 - 1; c += 3) {
+                makePlane(ix + c, 0.04, iz - rw / 2 - 1.5, 1.5, 0.4, crossMat);
+                makePlane(ix + c, 0.04, iz + rw / 2 + 1.5, 1.5, 0.4, crossMat);
+                makePlane(ix - rw / 2 - 1.5, 0.04, iz + c, 0.4, 1.5, crossMat);
+                makePlane(ix + rw / 2 + 1.5, 0.04, iz + c, 0.4, 1.5, crossMat);
+            }
         }
     }
 }
@@ -567,114 +615,181 @@ function makePlane(x, y, z, sx, sz, mat) {
 // BUILDINGS
 // ============================================
 function createBuildings() {
-    var g = cityGrid.gridCount, bs = cityGrid.blockSize, rw = cityGrid.roadWidth;
+    var g = cityGrid.gridCount, bs = cityGrid.blockSize;
     var off = (g - 1) * bs / 2;
 
     for (var bx = 0; bx < g - 1; bx++) {
         for (var bz = 0; bz < g - 1; bz++) {
             var cx = (bx + 0.5) * bs - off;
             var cz = (bz + 0.5) * bs - off;
+            var rwLeft = getRoadWidth(bx) / 2 + 3;
+            var rwRight = getRoadWidth(bx + 1) / 2 + 3;
+            var rwTop = getRoadWidth(bz) / 2 + 3;
+            var rwBottom = getRoadWidth(bz + 1) / 2 + 3;
+            var innerW = bs - rwLeft - rwRight;
+            var innerD = bs - rwTop - rwBottom;
+            if (innerW < 5 || innerD < 5) continue;
 
-            var count = Math.floor(Math.random() * 4) + 2;
+            var blockType = getBlockType(bx, bz);
+            var blockCx = cx + (rwRight - rwLeft) / 2;
+            var blockCz = cz + (rwBottom - rwTop) / 2;
+
+            if (blockType === 'park') continue;
+
+            var count = blockType === 'commercial' ? Math.floor(Math.random() * 3) + 3 : Math.floor(Math.random() * 2) + 1;
+
             for (var b = 0; b < count; b++) {
+                var maxOff = Math.min(innerW, innerD) / 2 - 5;
+                var px = blockCx + (Math.random() * 2 - 1) * Math.max(maxOff, 3);
+                var pz = blockCz + (Math.random() * 2 - 1) * Math.max(maxOff, 3);
+
                 if (buildingAssets.length > 0) {
-                    var asset = buildingAssets[Math.floor(Math.random() * buildingAssets.length)];
-                    var scale = 6 + Math.random() * 12;
+                    var asset;
+                    if (blockType === 'industrial') {
+                        asset = buildingAssets.filter(function(a) { return a.name && a.name.indexOf('industrial') >= 0; })[0] || buildingAssets[0];
+                    } else if (blockType === 'suburban') {
+                        asset = buildingAssets.filter(function(a) { return a.name && a.name.indexOf('suburban') >= 0; })[0] || buildingAssets[0];
+                    } else {
+                        asset = buildingAssets[Math.floor(Math.random() * buildingAssets.length)];
+                    }
+                    var scale = blockType === 'commercial' ? 8 + Math.random() * 14 : 4 + Math.random() * 6;
                     var ry = Math.floor(Math.random() * 4) * 90;
-                    var maxOffset = (bs - rw) / 2 - scale / 2 - 2;
-                    var px = cx + (Math.random() * 2 - 1) * Math.max(maxOffset, 5);
-                    var pz = cz + (Math.random() * 2 - 1) * Math.max(maxOffset, 5);
                     var ent = instantiateModel(asset, null, px, 0, pz, scale, scale, scale, 0, ry, 0);
-                    if (!ent) createFallbackBuilding(px, pz);
+                    if (!ent) createFallbackBuilding(px, pz, blockType);
                 } else {
-                    var px = cx + (Math.random() - 0.5) * (bs - rw - 10);
-                    var pz = cz + (Math.random() - 0.5) * (bs - rw - 10);
-                    createFallbackBuilding(px, pz);
+                    createFallbackBuilding(px, pz, blockType);
                 }
             }
         }
     }
 }
 
-function createFallbackBuilding(px, pz) {
-    var colors = [0x8899aa, 0x998877, 0x7788aa, 0xaa9988, 0x888888, 0x667788, 0x998866, 0x7799aa];
-    var h = 8 + Math.random() * 40;
-    var w = 5 + Math.random() * 12;
-    var d = 5 + Math.random() * 12;
+function createFallbackBuilding(px, pz, type) {
+    var colors = type === 'industrial' ? [0x886655, 0x778866, 0x998877] :
+                 type === 'suburban' ? [0xcc9966, 0xbb8855, 0xddaa77] :
+                 [0x8899aa, 0x998877, 0x7788aa, 0xaa9988, 0x888888, 0x667788];
+    var h = type === 'commercial' ? 10 + Math.random() * 45 : 4 + Math.random() * 10;
+    var w = type === 'industrial' ? 8 + Math.random() * 15 : 5 + Math.random() * 8;
+    var d = 5 + Math.random() * 8;
 
     var bldg = new pc.Entity();
     bldg.addComponent('model', { type: 'box', material: createMaterial(colors[Math.floor(Math.random() * colors.length)], 0.75) });
     bldg.setLocalScale(w, h, d);
     bldg.setPosition(px, h / 2, pz);
     app.root.addChild(bldg);
-
-    var winMat = createMaterial(0xffffcc, 0.3);
-    for (var wy = 2; wy < h - 2; wy += 3) {
-        for (var wx = -w / 2 + 2; wx < w / 2 - 1; wx += 3) {
-            var win = new pc.Entity();
-            win.addComponent('model', { type: 'box', material: winMat });
-            win.setLocalScale(1.2, 1.2, 0.1);
-            win.setPosition(px + wx, wy, pz + d / 2 + 0.06);
-            app.root.addChild(win);
-        }
-    }
 }
 
 // ============================================
 // PROPS
 // ============================================
+function isNearIntersection(x, z) {
+    var g = cityGrid.gridCount, bs = cityGrid.blockSize;
+    var off = (g - 1) * bs / 2;
+    for (var gx = 0; gx < g; gx++) {
+        for (var gz = 0; gz < g; gz++) {
+            var ix = gx * bs - off, iz = gz * bs - off;
+            var rwX = getRoadWidth(gx), rwZ = getRoadWidth(gz);
+            if (Math.abs(x - ix) < rwX / 2 + 5 && Math.abs(z - iz) < rwZ / 2 + 5) return true;
+        }
+    }
+    return false;
+}
+
 function createProps() {
-    var g = cityGrid.gridCount, bs = cityGrid.blockSize, rw = cityGrid.roadWidth;
+    var g = cityGrid.gridCount, bs = cityGrid.blockSize;
     var off = (g - 1) * bs / 2;
 
-    for (var bx = 0; bx < g - 1; bx++) {
-        for (var bz = 0; bz < g - 1; bz++) {
-            var cx = (bx + 0.5) * bs - off;
-            var cz = (bz + 0.5) * bs - off;
+    for (var i = 0; i < g; i++) {
+        var rw = getRoadWidth(i);
+        var roadPos = i * bs - off;
+        var isMain = rw === cityGrid.mainRoadWidth;
+        var spacing = isMain ? 18 : 25;
+        var len = g * bs;
 
-            var propCount = Math.floor(Math.random() * 5) + 3;
-            for (var p = 0; p < propCount; p++) {
-                var px = cx + (Math.random() - 0.5) * 40;
-                var pz = cz + (Math.random() - 0.5) * 40;
-                var type = Math.floor(Math.random() * 5);
-
-                if (type === 0) {
-                    if (propAssets.tree1) {
-                        var s = 3 + Math.random() * 3;
-                        instantiateModel(propAssets.tree1, null, px, 0, pz, s, s, s, 0, Math.random() * 360, 0);
-                    } else if (propAssets.tree2) {
-                        var s = 2 + Math.random() * 2;
-                        instantiateModel(propAssets.tree2, null, px, 0, pz, s, s, s, 0, Math.random() * 360, 0);
-                    } else {
-                        createFallbackTree(px, pz);
-                    }
-                } else if (type === 1) {
-                    if (propAssets.light1) {
-                        instantiateModel(propAssets.light1, null, px, 0, pz, 1.5, 1.5, 1.5, 0, Math.random() * 360, 0);
-                    } else if (propAssets.light2) {
-                        instantiateModel(propAssets.light2, null, px, 0, pz, 1.5, 1.5, 1.5, 0, Math.random() * 360, 0);
-                    } else {
-                        createFallbackLamp(px, pz);
-                    }
-                } else if (type === 2) {
-                    if (propAssets.fence) {
-                        instantiateModel(propAssets.fence, null, px, 0, pz, 2, 2, 2, 0, Math.random() * 360, 0);
-                    } else {
-                        createFallbackBench(px, pz);
-                    }
-                } else if (type === 3) {
-                    if (propAssets.cone) {
-                        instantiateModel(propAssets.cone, null, px, 0, pz, 1.5, 1.5, 1.5, 0, 0, 0);
-                    }
-                } else {
-                    if (propAssets.planter) {
-                        instantiateModel(propAssets.planter, null, px, 0, pz, 2, 2, 2, 0, Math.random() * 360, 0);
-                    } else {
-                        createFallbackBench(px, pz);
-                    }
+        for (var t = -len / 2; t < len / 2; t += spacing) {
+            if (!isNearIntersection(t, roadPos)) {
+                placeStreetLight(t, roadPos + rw / 2 + 1.5);
+                placeStreetLight(t, roadPos - rw / 2 - 1.5);
+                if (Math.random() < 0.6) {
+                    placeTree(t, roadPos + rw / 2 + 3.5);
+                    placeTree(t, roadPos - rw / 2 - 3.5);
+                }
+            }
+            if (!isNearIntersection(roadPos, t)) {
+                placeStreetLight(roadPos + rw / 2 + 1.5, t);
+                placeStreetLight(roadPos - rw / 2 - 1.5, t);
+                if (Math.random() < 0.6) {
+                    placeTree(roadPos + rw / 2 + 3.5, t);
+                    placeTree(roadPos - rw / 2 - 3.5, t);
                 }
             }
         }
+    }
+
+    for (var bx = 0; bx < g - 1; bx++) {
+        for (var bz = 0; bz < g - 1; bz++) {
+            var blockType = getBlockType(bx, bz);
+            var cx = (bx + 0.5) * bs - off;
+            var cz = (bz + 0.5) * bs - off;
+            var rwL = getRoadWidth(bx) / 2 + 3;
+            var rwR = getRoadWidth(bx + 1) / 2 + 3;
+            var rwT = getRoadWidth(bz) / 2 + 3;
+            var rwB = getRoadWidth(bz + 1) / 2 + 3;
+            var blockCx = cx + (rwR - rwL) / 2;
+            var blockCz = cz + (rwB - rwT) / 2;
+
+            if (blockType === 'park') {
+                var grassMat = createMaterial(0x3a8a3a, 0.9);
+                makePlane(blockCx, 0.03, blockCz, bs - rwL - rwR, bs - rwT - rwB, grassMat);
+
+                var treeCount = 8 + Math.floor(Math.random() * 8);
+                for (var t = 0; t < treeCount; t++) {
+                    var tx = blockCx + (Math.random() - 0.5) * (bs - rwL - rwR - 6);
+                    var tz = blockCz + (Math.random() - 0.5) * (bs - rwT - rwB - 6);
+                    placeTree(tx, tz);
+                }
+
+                if (propAssets.fence) {
+                    var fw = bs - rwL - rwR - 4;
+                    var fd = bs - rwT - rwB - 4;
+                    instantiateModel(propAssets.fence, null, blockCx - fw / 2, 0, blockCz, 2, 2, 2, 0, 0, 0);
+                    instantiateModel(propAssets.fence, null, blockCx + fw / 2, 0, blockCz, 2, 2, 2, 0, 180, 0);
+                }
+
+                if (propAssets.planter) {
+                    instantiateModel(propAssets.planter, null, blockCx, 0, blockCz, 2, 2, 2, 0, 0, 0);
+                }
+            } else {
+                var extraTrees = 1 + Math.floor(Math.random() * 3);
+                for (var t = 0; t < extraTrees; t++) {
+                    var tx = blockCx + (Math.random() - 0.5) * (bs - rwL - rwR - 8);
+                    var tz = blockCz + (Math.random() - 0.5) * (bs - rwT - rwB - 8);
+                    placeTree(tx, tz);
+                }
+            }
+        }
+    }
+}
+
+function placeStreetLight(x, z) {
+    if (propAssets.light1) {
+        instantiateModel(propAssets.light1, null, x, 0, z, 9, 9, 9, 0, Math.random() * 360, 0);
+    } else if (propAssets.light2) {
+        instantiateModel(propAssets.light2, null, x, 0, z, 9, 9, 9, 0, Math.random() * 360, 0);
+    } else {
+        createFallbackLamp(x, z);
+    }
+}
+
+function placeTree(x, z) {
+    if (propAssets.tree1) {
+        var s = 6 + Math.random() * 5;
+        instantiateModel(propAssets.tree1, null, x, 0, z, s, s, s, 0, Math.random() * 360, 0);
+    } else if (propAssets.tree2) {
+        var s = 5 + Math.random() * 4;
+        instantiateModel(propAssets.tree2, null, x, 0, z, s, s, s, 0, Math.random() * 360, 0);
+    } else {
+        createFallbackTree(x, z);
     }
 }
 
@@ -723,8 +838,11 @@ function createTrafficLightSystem() {
     var intersections = cityGrid.getIntersections();
     intersections.forEach(function (pos, index) {
         if (index % 2 === 0) {
-            createTrafficLightPole(pos.x + cityGrid.roadWidth / 2 + 1.5, pos.z + cityGrid.roadWidth / 2 + 1.5, 0);
-            createTrafficLightPole(pos.x - cityGrid.roadWidth / 2 - 1.5, pos.z - cityGrid.roadWidth / 2 - 1.5, 180);
+            var rwX = getRoadWidth(pos.gx);
+            var rwZ = getRoadWidth(pos.gz);
+            var offset = 1.5;
+            createTrafficLightPole(pos.x + rwX / 2 + offset, pos.z + rwZ / 2 + offset, 0);
+            createTrafficLightPole(pos.x - rwX / 2 - offset, pos.z - rwZ / 2 - offset, 180);
         }
     });
 }
@@ -1231,11 +1349,12 @@ function darkenColor(hex, factor) {
 }
 
 function spawnTrafficCar() {
-    var g = cityGrid.gridCount, bs = cityGrid.blockSize, rw = cityGrid.roadWidth;
+    var g = cityGrid.gridCount, bs = cityGrid.blockSize;
     var off = (g - 1) * bs / 2;
-    var laneOffset = rw / 4;
     var axis = Math.random() < 0.5 ? 'x' : 'z';
     var roadIdx = Math.floor(Math.random() * g);
+    var rw = getRoadWidth(roadIdx);
+    var laneOffset = rw / 4;
     var roadPos = roadIdx * bs - off;
     var side = Math.random() < 0.5 ? 1 : -1;
     var dir;
@@ -1245,12 +1364,12 @@ function spawnTrafficCar() {
         var startPos = (Math.random() - 0.5) * g * bs;
         x = startPos;
         z = roadPos + side * laneOffset;
-        dir = 90;
+        dir = side > 0 ? 90 : 270;
     } else {
         var startPos = (Math.random() - 0.5) * g * bs;
         x = roadPos + side * laneOffset;
         z = startPos;
-        dir = 0;
+        dir = side > 0 ? 0 : 180;
     }
 
     spawnAICar(x, z, dir);
@@ -1405,7 +1524,7 @@ function updateMinimap() {
     if (!canvas) return;
     var ctx = canvas.getContext('2d');
     var w = canvas.width, h = canvas.height;
-    var g = cityGrid.gridCount, bs = cityGrid.blockSize, rw = cityGrid.roadWidth;
+    var g = cityGrid.gridCount, bs = cityGrid.blockSize;
     var totalSize = g * bs;
     var scale = w / totalSize;
     var off = (g - 1) * bs / 2;
@@ -1413,13 +1532,39 @@ function updateMinimap() {
     ctx.fillStyle = '#1a3a1a';
     ctx.fillRect(0, 0, w, h);
 
-    ctx.fillStyle = '#444';
+    for (var bx = 0; bx < g - 1; bx++) {
+        for (var bz = 0; bz < g - 1; bz++) {
+            var rwL = getRoadWidth(bx) / 2 + 3;
+            var rwR = getRoadWidth(bx + 1) / 2 + 3;
+            var rwT = getRoadWidth(bz) / 2 + 3;
+            var rwB = getRoadWidth(bz + 1) / 2 + 3;
+            var bcx = ((bx + 0.5) * bs - off + totalSize / 2) * scale;
+            var bcz = ((bz + 0.5) * bs - off + totalSize / 2) * scale;
+            var bw = (bs - rwL - rwR) * scale;
+            var bd = (bs - rwT - rwB) * scale;
+            var bt = getBlockType(bx, bz);
+            ctx.fillStyle = bt === 'park' ? '#2a6a2a' : bt === 'industrial' ? '#5a5040' : bt === 'suburban' ? '#5a7a5a' : '#3a4a5a';
+            ctx.fillRect(bcx - bw / 2, bcz - bd / 2, bw, bd);
+        }
+    }
+
+    ctx.fillStyle = '#555';
     for (var i = 0; i < g; i++) {
+        var rw = getRoadWidth(i);
         var ry = ((i * bs - off - rw / 2) + totalSize / 2) * scale;
         ctx.fillRect(0, ry, w, rw * scale);
         var rx = ((i * bs - off - rw / 2) + totalSize / 2) * scale;
         ctx.fillRect(rx, 0, rw * scale, h);
     }
+
+    ctx.fillStyle = '#777';
+    cityGrid.getMainRoads().forEach(function(idx) {
+        var rw = cityGrid.mainRoadWidth;
+        var ry = ((idx * bs - off - rw / 2) + totalSize / 2) * scale;
+        ctx.fillRect(0, ry, w, rw * scale);
+        var rx = ((idx * bs - off - rw / 2) + totalSize / 2) * scale;
+        ctx.fillRect(rx, 0, rw * scale, h);
+    });
 
     for (var i = 0; i < aiCars.length; i++) {
         var p = aiCars[i].entity.getPosition();
