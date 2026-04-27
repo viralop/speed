@@ -29,6 +29,7 @@ var playerCarAsset = null;
 var aiCarAsset = null;
 var selectedCarType = null;
 var dirtyCarAsset = null;
+var flyingCarAsset = null;
 
 // ============================================
 // GLB MODEL LOADER
@@ -217,6 +218,7 @@ function preloadAssets() {
     allUrls.push('low_poly_cars_pack.glb');
     allUrls.push('city_3d_model.glb');
     allUrls.push('models/dirty_car_061220.glb');
+    allUrls.push('models/flying_car.glb');
 
     var totalAssets = allUrls.length;
     var loaded = 0;
@@ -240,6 +242,7 @@ function preloadAssets() {
         if (url === 'low_poly_cars_pack.glb' && asset) aiCarAsset = asset;
         if (url === 'city_3d_model.glb' && asset) cityAsset = asset;
         if (url === 'models/dirty_car_061220.glb' && asset) dirtyCarAsset = asset;
+        if (url === 'models/flying_car.glb' && asset) flyingCarAsset = asset;
 
         if (loaded >= totalAssets) {
             onAllAssetsLoaded();
@@ -458,35 +461,35 @@ function createProps() {
 
                 if (type === 0) {
                     if (propAssets.tree1) {
-                        var s = 4 + Math.random() * 4;
-                        instantiateModel(propAssets.tree1, null, px, 0, pz, s, s, s, Math.random() * 360);
-                    } else if (propAssets.tree2) {
                         var s = 3 + Math.random() * 3;
-                        instantiateModel(propAssets.tree2, null, px, 0, pz, s, s, s, Math.random() * 360);
+                        instantiateModel(propAssets.tree1, null, px, 0, pz, s, s, s, 0, Math.random() * 360, 0);
+                    } else if (propAssets.tree2) {
+                        var s = 2 + Math.random() * 2;
+                        instantiateModel(propAssets.tree2, null, px, 0, pz, s, s, s, 0, Math.random() * 360, 0);
                     } else {
                         createFallbackTree(px, pz);
                     }
                 } else if (type === 1) {
                     if (propAssets.light1) {
-                        instantiateModel(propAssets.light1, null, px, 0, pz, 2, 2, 2, Math.random() * 360);
+                        instantiateModel(propAssets.light1, null, px, 0, pz, 1.5, 1.5, 1.5, 0, Math.random() * 360, 0);
                     } else if (propAssets.light2) {
-                        instantiateModel(propAssets.light2, null, px, 0, pz, 2, 2, 2, Math.random() * 360);
+                        instantiateModel(propAssets.light2, null, px, 0, pz, 1.5, 1.5, 1.5, 0, Math.random() * 360, 0);
                     } else {
                         createFallbackLamp(px, pz);
                     }
                 } else if (type === 2) {
                     if (propAssets.fence) {
-                        instantiateModel(propAssets.fence, null, px, 0, pz, 3, 3, 3, Math.random() * 360);
+                        instantiateModel(propAssets.fence, null, px, 0, pz, 2, 2, 2, 0, Math.random() * 360, 0);
                     } else {
                         createFallbackBench(px, pz);
                     }
                 } else if (type === 3) {
                     if (propAssets.cone) {
-                        instantiateModel(propAssets.cone, null, px, 0, pz, 2, 2, 2, 0);
+                        instantiateModel(propAssets.cone, null, px, 0, pz, 1.5, 1.5, 1.5, 0, 0, 0);
                     }
                 } else {
                     if (propAssets.planter) {
-                        instantiateModel(propAssets.planter, null, px, 0, pz, 3, 3, 3, Math.random() * 360);
+                        instantiateModel(propAssets.planter, null, px, 0, pz, 2, 2, 2, 0, Math.random() * 360, 0);
                     } else {
                         createFallbackBench(px, pz);
                     }
@@ -707,6 +710,9 @@ function showCarSelection() {
     if (dirtyCarAsset) {
         carChoices.push({ type: 'dirty', name: 'Muscle Car', color: '#886633' });
     }
+    if (flyingCarAsset) {
+        carChoices.push({ type: 'flying', name: 'Flying Car', color: '#00aaff' });
+    }
 
     carChoices.forEach(function (choice, idx) {
         var el = document.createElement('div');
@@ -748,6 +754,10 @@ function createPlayerCar() {
     if (choice.type === 'dirty' && dirtyCarAsset) {
         var s = 4.0/255;
         var ent = instantiateModel(dirtyCarAsset, car, 0, 0, 0, s, s, s, 270, 180, 0);
+        if (ent) { removeGroundPlanes(ent); }
+    } else if (choice.type === 'flying' && flyingCarAsset) {
+        var s = 4.0/255;
+        var ent = instantiateModel(flyingCarAsset, car, 0, 0, 0, s, s, s, 270, 180, 0);
         if (ent) { removeGroundPlanes(ent); }
     } else if (choice.type === 'pack' && aiCarAsset) {
         var pack = aiCarAsset.resource.instantiateRenderEntity();
@@ -992,50 +1002,44 @@ function resetCar() {
 // ============================================
 function spawnAICar(x, z, dir) {
     var aiCar = new pc.Entity('ai_car');
-    aiCar.setPosition(x, 1, z);
+    aiCar.setPosition(x, 0.6, z);
     aiCar.setLocalEulerAngles(0, dir, 0);
     app.root.addChild(aiCar);
 
-    if (aiCarAsset) {
-        var packEntity = aiCarAsset.resource.instantiateRenderEntity();
-        if (packEntity) {
-            var children = packEntity.children;
-            var carChildren = [];
-            for (var i = 0; i < children.length; i++) {
-                if (children[i].model && children[i].model.meshInstances && children[i].model.meshInstances.length > 0) {
-                    carChildren.push(children[i]);
-                }
-            }
-            if (carChildren.length > 0) {
-                aiPackChildCount = carChildren.length;
-                var picked = carChildren[Math.floor(Math.random() * carChildren.length)];
-                picked.reparent(aiCar);
-                for (var j = 0; j < children.length; j++) {
-                    if (children[j] !== picked && children[j].parent === packEntity) {
-                        children[j].destroy();
-                    }
-                }
-                packEntity.destroy();
-                picked.setLocalEulerAngles(AI_CAR_ROT[0], AI_CAR_ROT[1], AI_CAR_ROT[2]);
-                picked.setLocalScale(AI_CAR_SCALE, AI_CAR_SCALE, AI_CAR_SCALE);
-            } else {
-                packEntity.destroy();
-                addFallbackAICarBody(aiCar);
-            }
-        } else {
-            addFallbackAICarBody(aiCar);
-        }
-    } else {
-        addFallbackAICarBody(aiCar);
-    }
+    var colors = [0x3344ff, 0xffaa00, 0x00cc44, 0xff44cc, 0x44ffff, 0xff8800, 0x8844ff, 0xff4444, 0x44ff88, 0xffffff];
+    var color = colors[Math.floor(Math.random() * colors.length)];
+    var bodyMat = createMaterial(color, 0.4);
+    var darkMat = createMaterial(darkenColor(color, 0.5), 0.5);
+    var glassMat = createMaterial(0x88ccff, 0.15);
+    var headlightMat = createMaterial(0xffffee, 0.1);
+    var taillightMat = createMaterial(0xff2200, 0.15);
+
+    var carW = 2.0 + Math.random() * 0.2;
+    var carH = 0.8 + Math.random() * 0.3;
+    var carL = 4.0 + Math.random() * 0.5;
+
+    addBox(aiCar, carW, carH * 0.6, carL, 0, carH * 0.3, 0, bodyMat);
+    addBox(aiCar, carW * 0.9, carH * 0.4, carL * 0.55, 0, carH * 0.85, -carL * 0.08, darkMat);
+    addBox(aiCar, carW * 0.85, carH * 0.35, carL * 0.5, 0, carH * 1.1, -carL * 0.08, darkMat);
+    addBox(aiCar, carW * 0.8, 0.5, 0.05, 0, carH * 0.85, carL * 0.15, glassMat);
+    addBox(aiCar, carW * 0.75, 0.4, 0.05, 0, carH * 0.85, -carL * 0.25, glassMat);
+    addBox(aiCar, 0.05, 0.35, carL * 0.45, -carW * 0.47, carH * 0.85, -carL * 0.08, glassMat);
+    addBox(aiCar, 0.05, 0.35, carL * 0.45, carW * 0.47, carH * 0.85, -carL * 0.08, glassMat);
+    addBox(aiCar, 0.4, 0.15, 0.06, -carW * 0.3, carH * 0.4, carL / 2 + 0.03, headlightMat);
+    addBox(aiCar, 0.4, 0.15, 0.06, carW * 0.3, carH * 0.4, carL / 2 + 0.03, headlightMat);
+    addBox(aiCar, 0.35, 0.12, 0.06, -carW * 0.33, carH * 0.4, -carL / 2 - 0.03, taillightMat);
+    addBox(aiCar, 0.35, 0.12, 0.06, carW * 0.33, carH * 0.4, -carL / 2 - 0.03, taillightMat);
+    addBox(aiCar, carW + 0.1, carH * 0.2, 0.2, 0, carH * 0.15, carL / 2 + 0.05, darkMat);
+    addBox(aiCar, carW + 0.1, carH * 0.2, 0.2, 0, carH * 0.15, -carL / 2 - 0.05, darkMat);
 
     aiCars.push({ entity: aiCar, direction: dir, speed: 15 + Math.random() * 15 });
 }
 
-function addFallbackAICarBody(aiCar) {
-    var colors = [0x3344ff, 0xffaa00, 0x00cc44, 0xff44cc, 0x44ffff];
-    aiCar.addComponent('model', { type: 'box', material: createMaterial(colors[Math.floor(Math.random() * colors.length)], 0.5) });
-    aiCar.setLocalScale(2, 0.8, 4);
+function darkenColor(hex, factor) {
+    var r = ((hex >> 16) & 0xff) * factor;
+    var g = ((hex >> 8) & 0xff) * factor;
+    var b = (hex & 0xff) * factor;
+    return (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b);
 }
 
 function spawnTrafficCar() {
