@@ -402,7 +402,7 @@ function createBuildings() {
                     var maxOffset = (bs - rw) / 2 - scale / 2 - 2;
                     var px = cx + (Math.random() * 2 - 1) * Math.max(maxOffset, 5);
                     var pz = cz + (Math.random() * 2 - 1) * Math.max(maxOffset, 5);
-                    var ent = instantiateModel(asset, null, px, 0, pz, scale, scale, scale, ry);
+                    var ent = instantiateModel(asset, null, px, 0, pz, scale, scale, scale, 0, ry, 0);
                     if (!ent) createFallbackBuilding(px, pz);
                 } else {
                     var px = cx + (Math.random() - 0.5) * (bs - rw - 10);
