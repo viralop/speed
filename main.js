@@ -5,12 +5,16 @@
 var app, carEntity, cameraEntity;
 var gameRunning = false;
 var carSpeed = 0;
-var maxSpeed = 120;
-var acceleration = 40;
+var maxSpeed = 240;
+var acceleration = 30;
 var braking = 60;
-var naturalDecel = 15;
+var naturalDecel = 12;
 var turnSpeed = 120;
+var assetsLoaded = false;
 var carRotation = 0;
+var carGear = 1;
+var gearSpeeds = [0, 40, 80, 120, 160, 200, 240];
+var gearRPMs = [60, 80, 100, 120, 140, 160];
 var driftActive = false;
 var driftMultiplier = 1.0;
 var keys = {};
@@ -30,6 +34,7 @@ var aiCarAsset = null;
 var selectedCarType = null;
 var dirtyCarAsset = null;
 var flyingCarAsset = null;
+var broncoCarAsset = null;
 
 // ============================================
 // GLB MODEL LOADER
@@ -100,6 +105,165 @@ function loadMultipleGLB(urls, onAllLoaded) {
 }
 
 // ============================================
+// AUDIO ENGINE
+// ============================================
+var audioCtx = null;
+var engineOsc = null, engineGain = null;
+var honkOsc = null, honkGain = null;
+var driftNoise = null, driftGain = null;
+var driftFilter = null;
+
+function initAudio() {
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) { console.log('Audio not available'); }
+}
+
+function startEngineSound() {
+    if (!audioCtx) return;
+    try {
+        engineOsc = audioCtx.createOscillator();
+        engineGain = audioCtx.createGain();
+        engineOsc.type = 'sawtooth';
+        engineOsc.frequency.value = 60;
+        engineGain.gain.value = 0;
+        engineOsc.connect(engineGain);
+        engineGain.connect(audioCtx.destination);
+        engineOsc.start();
+
+        var osc2 = audioCtx.createOscillator();
+        var gain2 = audioCtx.createGain();
+        osc2.type = 'square';
+        osc2.frequency.value = 30;
+        gain2.gain.value = 0;
+        osc2.connect(gain2);
+        gain2.connect(audioCtx.destination);
+        osc2.start();
+        engineOsc._sub = osc2;
+        engineOsc._subGain = gain2;
+    } catch (e) {}
+}
+
+function updateEngineSound() {
+    if (!engineOsc || !audioCtx) return;
+    try {
+        var absSpeed = Math.abs(carSpeed);
+        var gearIdx = Math.min(carGear, gearRPMs.length - 1);
+        var gearMin = gearSpeeds[gearIdx] || 0;
+        var gearMax = gearSpeeds[gearIdx + 1] || maxSpeed;
+        var gearRatio = Math.min((absSpeed - gearMin) / (gearMax - gearMin), 1);
+        gearRatio = Math.max(gearRatio, 0);
+
+        var baseFreq = gearRPMs[gearIdx] || 60;
+        var freq = baseFreq + gearRatio * 80;
+        var vol = 0.02 + gearRatio * 0.06 + (absSpeed / maxSpeed) * 0.04;
+
+        engineOsc.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.03);
+        engineGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.03);
+        if (engineOsc._sub) {
+            engineOsc._sub.frequency.setTargetAtTime(freq * 0.5, audioCtx.currentTime, 0.03);
+            engineOsc._subGain.gain.setTargetAtTime(vol * 0.5, audioCtx.currentTime, 0.03);
+        }
+    } catch (e) {}
+}
+
+function stopEngineSound() {
+    if (engineOsc) { try { engineOsc.stop(); } catch(e) {} engineOsc = null; }
+    if (engineOsc && engineOsc._sub) { try { engineOsc._sub.stop(); } catch(e) {} }
+    if (engineGain) engineGain = null;
+}
+
+function playHonk() {
+    if (!audioCtx) return;
+    try {
+        var o1 = audioCtx.createOscillator();
+        var o2 = audioCtx.createOscillator();
+        var g = audioCtx.createGain();
+        o1.type = 'square'; o1.frequency.value = 350;
+        o2.type = 'square'; o2.frequency.value = 440;
+        g.gain.value = 0.1;
+        o1.connect(g); o2.connect(g); g.connect(audioCtx.destination);
+        o1.start(); o2.start();
+        g.gain.setTargetAtTime(0, audioCtx.currentTime + 0.3, 0.1);
+        o1.stop(audioCtx.currentTime + 0.5);
+        o2.stop(audioCtx.currentTime + 0.5);
+    } catch (e) {}
+}
+
+function startDriftSound() {
+    if (!audioCtx || driftNoise) return;
+    try {
+        var bufferSize = audioCtx.sampleRate * 2;
+        var buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        var data = buffer.getChannelData(0);
+        for (var i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        driftNoise = audioCtx.createBufferSource();
+        driftNoise.buffer = buffer;
+        driftNoise.loop = true;
+        driftFilter = audioCtx.createBiquadFilter();
+        driftFilter.type = 'bandpass';
+        driftFilter.frequency.value = 2000;
+        driftFilter.Q.value = 1.5;
+        driftGain = audioCtx.createGain();
+        driftGain.gain.value = 0;
+        driftNoise.connect(driftFilter);
+        driftFilter.connect(driftGain);
+        driftGain.connect(audioCtx.destination);
+        driftNoise.start();
+    } catch (e) {}
+}
+
+function updateDriftSound() {
+    if (!driftGain || !audioCtx) return;
+    try {
+        var vol = driftActive && Math.abs(carSpeed) > 10 ? 0.06 + (Math.abs(carSpeed) / maxSpeed) * 0.08 : 0;
+        driftGain.gain.setTargetAtTime(vol, audioCtx.currentTime, 0.05);
+        if (driftFilter) driftFilter.frequency.value = 1500 + (Math.abs(carSpeed) / maxSpeed) * 3000;
+    } catch (e) {}
+}
+
+function stopDriftSound() {
+    if (driftNoise) { try { driftNoise.stop(); } catch(e) {} driftNoise = null; }
+    driftGain = null; driftFilter = null;
+}
+
+function playShiftSound(gear) {
+    if (!audioCtx) return;
+    try {
+        var baseFreq = 200 - gear * 20;
+        var o = audioCtx.createOscillator();
+        var o2 = audioCtx.createOscillator();
+        var g = audioCtx.createGain();
+        o.type = 'square';
+        o.frequency.value = baseFreq;
+        o2.type = 'sawtooth';
+        o2.frequency.value = baseFreq * 1.5;
+        g.gain.value = 0.06;
+        o.connect(g); o2.connect(g);
+        g.connect(audioCtx.destination);
+        o.start(); o2.start();
+        o.frequency.setTargetAtTime(baseFreq * 0.5, audioCtx.currentTime, 0.015);
+        o2.frequency.setTargetAtTime(baseFreq * 0.7, audioCtx.currentTime, 0.015);
+        g.gain.setTargetAtTime(0, audioCtx.currentTime + 0.06, 0.04);
+        o.stop(audioCtx.currentTime + 0.12);
+        o2.stop(audioCtx.currentTime + 0.12);
+    } catch (e) {}
+}
+
+function updateGearSound() {
+    var absSpeed = Math.abs(carSpeed);
+    var newGear = 1;
+    for (var i = gearSpeeds.length - 1; i >= 1; i--) {
+        if (absSpeed >= gearSpeeds[i]) { newGear = i; break; }
+    }
+    if (newGear !== carGear) {
+        var oldGear = carGear;
+        carGear = newGear;
+        if (newGear > oldGear) playShiftSound(newGear);
+    }
+}
+
+// ============================================
 // ENGINE INIT
 // ============================================
 function initEngine() {
@@ -136,6 +300,7 @@ function initEngine() {
 
     setupInput();
     setupMenuButtons();
+    initAudio();
 
     window.addEventListener('resize', function () { app.resizeCanvas(); });
     document.getElementById('start-stop-btn').addEventListener('click', toggleGame);
@@ -146,6 +311,9 @@ function initEngine() {
         updateCarPhysics(dt);
         updateCamera(dt);
         updateAI(dt);
+        updateEngineSound();
+        updateDriftSound();
+        updateGearSound();
         updateUI();
     });
 
@@ -172,8 +340,12 @@ function startLoading() {
 
     setTimeout(function () {
         menuScreen.classList.add('hidden');
-        document.getElementById('loading-screen').classList.remove('hidden');
-        preloadAssets();
+        if (assetsLoaded) {
+            showCarSelection();
+        } else {
+            document.getElementById('loading-screen').classList.remove('hidden');
+            preloadAssets();
+        }
     }, 600);
 }
 
@@ -219,6 +391,7 @@ function preloadAssets() {
     allUrls.push('city_3d_model.glb');
     allUrls.push('models/dirty_car_061220.glb');
     allUrls.push('models/flying_car.glb');
+    allUrls.push('models/bronco_car_animation_red.glb');
 
     var totalAssets = allUrls.length;
     var loaded = 0;
@@ -243,6 +416,7 @@ function preloadAssets() {
         if (url === 'city_3d_model.glb' && asset) cityAsset = asset;
         if (url === 'models/dirty_car_061220.glb' && asset) dirtyCarAsset = asset;
         if (url === 'models/flying_car.glb' && asset) flyingCarAsset = asset;
+        if (url === 'models/bronco_car_animation_red.glb' && asset) broncoCarAsset = asset;
 
         if (loaded >= totalAssets) {
             onAllAssetsLoaded();
@@ -257,6 +431,7 @@ function preloadAssets() {
 }
 
 function onAllAssetsLoaded() {
+    assetsLoaded = true;
     var loadedCount = buildingAssets.length;
     var propCount = Object.keys(propAssets).length;
     console.log('Assets loaded - Buildings:', loadedCount, 'Props:', propCount,
@@ -713,6 +888,9 @@ function showCarSelection() {
     if (flyingCarAsset) {
         carChoices.push({ type: 'flying', name: 'Flying Car', color: '#00aaff' });
     }
+    if (broncoCarAsset) {
+        carChoices.push({ type: 'bronco', name: 'Bronco', color: '#cc2222' });
+    }
 
     carChoices.forEach(function (choice, idx) {
         var el = document.createElement('div');
@@ -758,6 +936,10 @@ function createPlayerCar() {
     } else if (choice.type === 'flying' && flyingCarAsset) {
         var s = 4.0/255;
         var ent = instantiateModel(flyingCarAsset, car, 0, 0, 0, s, s, s, 270, 180, 0);
+        if (ent) { removeGroundPlanes(ent); }
+    } else if (choice.type === 'bronco' && broncoCarAsset) {
+        var s = 4.0/255;
+        var ent = instantiateModel(broncoCarAsset, car, 0, 0, 0, s, s, s, 270, 180, 0);
         if (ent) { removeGroundPlanes(ent); }
     } else if (choice.type === 'pack' && aiCarAsset) {
         var pack = aiCarAsset.resource.instantiateRenderEntity();
@@ -971,7 +1153,11 @@ function updateCarPhysics(dt) {
     if (keys['a'] || keys['arrowleft']) turn = 1;
     if (keys['d'] || keys['arrowright']) turn = -1;
 
-    if (fwd > 0) carSpeed = Math.min(carSpeed + acceleration * dt, maxSpeed);
+    if (fwd > 0) {
+        var speedRatio = Math.abs(carSpeed) / maxSpeed;
+        var accelFactor = 1.0 - speedRatio * 0.85;
+        carSpeed = Math.min(carSpeed + acceleration * accelFactor * dt, maxSpeed);
+    }
     else if (fwd < 0) { if (carSpeed > 0) carSpeed = Math.max(carSpeed - braking * dt, 0); else carSpeed = Math.max(carSpeed - acceleration * 0.5 * dt, -maxSpeed * 0.3); }
     else { if (carSpeed > 0) carSpeed = Math.max(0, carSpeed - naturalDecel * dt); else if (carSpeed < 0) carSpeed = Math.min(0, carSpeed + naturalDecel * dt); }
 
@@ -1144,14 +1330,53 @@ function updateCamera(dt) {
 function setupInput() {
     document.addEventListener('keydown', function (e) {
         keys[e.key.toLowerCase()] = true;
-        if (e.key === ' ') { e.preventDefault(); driftActive = true; document.getElementById('drift-indicator').classList.add('drifting'); }
+        if (e.key === ' ') {
+            e.preventDefault();
+            driftActive = true;
+            document.getElementById('drift-indicator').classList.add('drifting');
+            startDriftSound();
+        }
         if (e.key.toLowerCase() === 'c') cameraMode = (cameraMode + 1) % 3;
         if (e.key.toLowerCase() === 'r') resetCar();
+        if (e.key.toLowerCase() === 'h') playHonk();
+        if (e.key === 'Escape') quitToMenu();
     });
     document.addEventListener('keyup', function (e) {
         keys[e.key.toLowerCase()] = false;
-        if (e.key === ' ') { driftActive = false; document.getElementById('drift-indicator').classList.remove('drifting'); }
+        if (e.key === ' ') { driftActive = false; document.getElementById('drift-indicator').classList.remove('drifting'); stopDriftSound(); }
     });
+}
+
+function quitToMenu() {
+    gameRunning = false;
+    carSpeed = 0;
+    carRotation = 0;
+    carGear = 0;
+    driftActive = false;
+    stopEngineSound();
+    stopDriftSound();
+
+    aiCars.forEach(function(ai) { ai.entity.destroy(); });
+    aiCars = [];
+    trafficLights = [];
+
+    var toDestroy = [];
+    for (var i = 0; i < app.root.children.length; i++) {
+        var child = app.root.children[i];
+        if (child.name !== 'camera' && child.name !== 'ambient' && child.name !== 'sun' && child.name !== 'hemi') {
+            toDestroy.push(child);
+        }
+    }
+    for (var i = 0; i < toDestroy.length; i++) {
+        toDestroy[i].destroy();
+    }
+    carEntity = null;
+
+    document.getElementById('game-hud').classList.add('hidden');
+    document.getElementById('car-select-screen').classList.add('hidden');
+    var menu = document.getElementById('menu-screen');
+    menu.classList.remove('hidden', 'fade-out');
+    gameState = 'menu';
 }
 
 // ============================================
@@ -1162,10 +1387,65 @@ function toggleGame() {
     var btn = document.getElementById('start-stop-btn');
     btn.textContent = gameRunning ? 'STOP ENGINE' : 'START ENGINE';
     btn.classList.toggle('running', gameRunning);
+    if (gameRunning) {
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        startEngineSound();
+    } else {
+        stopEngineSound();
+        stopDriftSound();
+    }
 }
 
 function updateUI() {
     document.getElementById('speed-value').textContent = Math.abs(Math.round(carSpeed));
+    updateMinimap();
+}
+
+function updateMinimap() {
+    var canvas = document.getElementById('minimap-canvas');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var w = canvas.width, h = canvas.height;
+    var g = cityGrid.gridCount, bs = cityGrid.blockSize, rw = cityGrid.roadWidth;
+    var totalSize = g * bs;
+    var scale = w / totalSize;
+    var off = (g - 1) * bs / 2;
+
+    ctx.fillStyle = '#1a3a1a';
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.fillStyle = '#444';
+    for (var i = 0; i < g; i++) {
+        var ry = ((i * bs - off - rw / 2) + totalSize / 2) * scale;
+        ctx.fillRect(0, ry, w, rw * scale);
+        var rx = ((i * bs - off - rw / 2) + totalSize / 2) * scale;
+        ctx.fillRect(rx, 0, rw * scale, h);
+    }
+
+    for (var i = 0; i < aiCars.length; i++) {
+        var p = aiCars[i].entity.getPosition();
+        var mx = (p.x + totalSize / 2) * scale;
+        var mz = (p.z + totalSize / 2) * scale;
+        ctx.fillStyle = '#ffaa00';
+        ctx.fillRect(mx - 2, mz - 2, 4, 4);
+    }
+
+    if (carEntity) {
+        var cp = carEntity.getPosition();
+        var px = (cp.x + totalSize / 2) * scale;
+        var pz = (cp.z + totalSize / 2) * scale;
+        ctx.save();
+        ctx.translate(px, pz);
+        ctx.rotate(-carRotation * Math.PI / 180);
+        ctx.fillStyle = '#ff2222';
+        ctx.beginPath();
+        ctx.moveTo(0, -5);
+        ctx.lineTo(-3, 4);
+        ctx.lineTo(3, 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
 }
 
 // ============================================
