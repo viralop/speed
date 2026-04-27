@@ -1373,10 +1373,7 @@ function quitToMenu() {
     carEntity = null;
 
     document.getElementById('game-hud').classList.add('hidden');
-    document.getElementById('car-select-screen').classList.add('hidden');
-    var menu = document.getElementById('menu-screen');
-    menu.classList.remove('hidden', 'fade-out');
-    gameState = 'menu';
+    showCarSelection();
 }
 
 // ============================================
